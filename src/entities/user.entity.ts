@@ -5,16 +5,16 @@ export class Users {
   @PrimaryColumn('uuid', { name: 'UserID' })
   userId: string;
 
-  @Column({ name: 'UserName', type: 'varchar', length: 100, nullable: true })
+  @Column({ name: 'username', type: 'varchar', length: 100, nullable: true })
   username?: string;
 
   @Column({
-    name: 'UserFullName',
+    name: 'name',
     type: 'varchar',
     length: 200,
     nullable: true,
   })
-  fullName?: string;
+  name?: string;
 
   @Column({ name: 'UserEmail', type: 'varchar', length: 150, nullable: true })
   email?: string;

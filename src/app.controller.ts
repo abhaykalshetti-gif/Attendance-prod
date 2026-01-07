@@ -3,11 +3,29 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
 import { AppService } from './app.service';
+import { Attendance } from './entities/attendance.entity';
+import { Roles } from './entities/role.entity';
+import { UserRolesMapping } from './entities/User-Roles-Mapping';
+import { Users } from './entities/user.entity';
 
 @Controller()
 export class AppController {
   constructor( 
   private readonly appService: AppService,
+
+   // 🔹 Attendance DB
+      @InjectRepository(Attendance, 'attendance')
+      private readonly attendanceRepo: Repository<Attendance>,
+  
+      @InjectRepository(Users)
+      private readonly userRepo: Repository<Users>,
+      
+      // 🔹 Default DB
+      @InjectRepository(UserRolesMapping)
+      private readonly registrationTrackerRepo: Repository<UserRolesMapping>,
+  
+      @InjectRepository(Roles)
+      private readonly rolesRepo: Repository<Roles>,
 ) {}
 
 
@@ -105,7 +123,93 @@ async getAttendanceByDates(@Body() data: any) {
 console.log(response);
 
 return response;
-
 }
+
+
+@Post('/user-attendance/by-dates')
+async getUsersAttendanceByDates(@Body() data: any) {
+  // 1️⃣ Normalize dates
+  const dates: string[] = (
+    Array.isArray(data.attendanceDate)
+      ? data.attendanceDate
+      : [data.attendanceDate]
+  ).filter((d): d is string => Boolean(d));
+
+  if (!dates.length) return [];
+
+  // 2️⃣ Fetch attendance data (attendance DB)
+  const attendanceData = await this.attendanceRepo.query(
+    `
+    SELECT
+      "userId",
+      "attendance",
+      "attendanceDate"
+    FROM "Attendance"
+    WHERE "attendanceDate" = ANY($1::date[])
+    `,
+    [dates],
+  );
+
+  if (!attendanceData.length) return [];
+
+  // 3️⃣ Extract unique userIds
+ const userIds = [...new Set(attendanceData.map(a => a.userId))];
+
+
+  // 4️⃣ Fetch users (default DB)
+ const users = await this.userRepo.query(
+  `
+  SELECT
+    "userId",
+    "username"
+  FROM "Users"
+  WHERE "userId" = ANY($1::uuid[])
+  `,
+  [userIds],
+);
+
+  const userMap = new Map<string, string>();
+  users.forEach(u => userMap.set(u.userId, u.username));
+
+  // 5️⃣ Fetch roles (default DB)
+  const userRoles = await this.getUserRolesByUserIds(userIds);
+
+  const roleMap = new Map<string, string>();
+  userRoles.forEach(r =>
+    roleMap.set(r.userId, r.name),
+  );
+const ALLOWED_ROLES = ['Staff', 'Teacher', 'Supervisor'];
+
+  // 6️⃣ Build final response
+  return attendanceData
+    .map(record => ({
+      username: userMap.get(record.userId),
+      rolename: roleMap.get(record.userId),
+      status: record.attendance,
+      date: this.formatDate(record.attendanceDate),
+    }))
+    .filter(
+      row =>
+        row.username &&
+        row.rolename &&
+        ALLOWED_ROLES.includes(row.rolename),
+    );
+}
+
+async getUserRolesByUserIds(userIds: any) {
+  return this.registrationTrackerRepo.query(
+    `
+    SELECT
+      rg."userId",
+      r."name"
+    FROM "UserRolesMapping" rg
+    JOIN "Roles" r
+      ON r."roleId" = rg."roleId"
+    WHERE rg."userId" = ANY($1::uuid[])
+    `,
+    [userIds],
+  );
+}
+
 
 }
