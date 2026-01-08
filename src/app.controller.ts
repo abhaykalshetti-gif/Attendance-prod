@@ -138,17 +138,23 @@ async getUsersAttendanceByDates(@Body() data: any) {
   if (!dates.length) return [];
 
   // 2️⃣ Fetch attendance data (attendance DB)
-  const attendanceData = await this.attendanceRepo.query(
-    `
-    SELECT
-      "userId",
-      "attendance",
-      "attendanceDate"
-    FROM "Attendance"
-    WHERE "attendanceDate" = ANY($1::date[])
-    `,
-    [dates],
-  );
+ const attendanceData = await this.attendanceRepo.query(
+  `
+  SELECT
+    "userId",
+    "attendance",
+    "attendanceDate",
+    "absentReason",
+    "metaData"->>'workLocation' AS "workLocation",
+    TO_CHAR(
+      "createdAt" AT TIME ZONE 'Asia/Kolkata',
+      'HH24:MI:SS'
+    ) AS "createdAt"
+  FROM "Attendance"
+  WHERE "attendanceDate" = ANY($1::date[])
+  `,
+  [dates],
+);
 
   if (!attendanceData.length) return [];
 
@@ -180,20 +186,26 @@ async getUsersAttendanceByDates(@Body() data: any) {
   );
 const ALLOWED_ROLES = ['Staff', 'Teacher', 'Supervisor'];
 
-  // 6️⃣ Build final response
-  return attendanceData
-    .map(record => ({
-      username: userMap.get(record.userId),
-      rolename: roleMap.get(record.userId),
-      status: record.attendance,
-      date: this.formatDate(record.attendanceDate),
-    }))
-    .filter(
-      row =>
-        row.username &&
-        row.rolename &&
-        ALLOWED_ROLES.includes(row.rolename),
-    );
+return attendanceData
+  .map(record => ({
+    username: userMap.get(record.userId),
+    rolename: roleMap.get(record.userId),
+    status: record.attendance, // present | absent
+    absentReason:
+      record.attendance === 'absent'
+        ? record.absentReason ?? null
+        : null,
+    date: this.formatDate(record.attendanceDate),
+    workLocation: record.workLocation ?? null,
+    timeStamp: record.createdAt, // full timestamp
+  }))
+  .filter(
+    row =>
+      row.username &&
+      row.rolename &&
+      ALLOWED_ROLES.includes(row.rolename),
+  );
+
 }
 
 async getUserRolesByUserIds(userIds: any) {
@@ -210,6 +222,5 @@ async getUserRolesByUserIds(userIds: any) {
     [userIds],
   );
 }
-
 
 }
